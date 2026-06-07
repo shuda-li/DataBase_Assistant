@@ -1,0 +1,241 @@
+-- ============================================================
+-- 子系统1：基础学籍师资管理
+-- ============================================================
+
+-- 院系表
+CREATE TABLE DEPARTMENT (
+    dept_id CHAR(4) PRIMARY KEY,
+    dept_name VARCHAR(50) NOT NULL
+);
+
+-- 专业表
+CREATE TABLE MAJOR (
+    major_id INT PRIMARY KEY,
+    dept_id CHAR(4) NOT NULL,
+    major_name VARCHAR(50) NOT NULL,
+    CONSTRAINT FK_MAJOR_DEPT FOREIGN KEY (dept_id) REFERENCES DEPARTMENT(dept_id)
+);
+
+-- 学生表 (已修复外键字段名)
+CREATE TABLE STUDENT (
+    stu_id CHAR(10) PRIMARY KEY,
+    stu_name VARCHAR(50) NOT NULL,
+    gender VARCHAR(10),
+    birth DATE,
+    id_card CHAR(18),
+    enroll_year INT, -- PG中通常用INT存储年份，或者使用DATE类型提取
+    edu_level VARCHAR(20),
+    dept_id CHAR(4), -- 【修复】补上了这个字段
+    major_name VARCHAR(50),
+    cls_name VARCHAR(50),
+    study_status VARCHAR(20),
+    phone VARCHAR(15),
+    email VARCHAR(100),
+    CONSTRAINT FK_STUDENT_DEPT FOREIGN KEY (dept_id) REFERENCES DEPARTMENT(dept_id)
+);
+
+-- 教师表
+CREATE TABLE TEACHER (
+    tea_id CHAR(8) PRIMARY KEY,
+    tea_name VARCHAR(50) NOT NULL,
+    gender VARCHAR(10),
+    birth DATE,
+    title VARCHAR(20),
+    dept_id CHAR(4),
+    edu_level VARCHAR(20),
+    phone VARCHAR(15),
+    email VARCHAR(100),
+    CONSTRAINT FK_TEACHER_DEPT FOREIGN KEY (dept_id) REFERENCES DEPARTMENT(dept_id)
+);
+
+-- 课程表
+CREATE TABLE COURSE (
+    course_id CHAR(8) PRIMARY KEY,
+    course_name VARCHAR(100) NOT NULL,
+    course_type VARCHAR(20),
+    credit_default NUMERIC(3,1), -- PG推荐使用NUMERIC代替DECIMAL
+    class_hour INT,
+    dept_id CHAR(4),
+    pre_course_id CHAR(8),
+    course_desc TEXT,
+    CONSTRAINT FK_COURSE_DEPT FOREIGN KEY (dept_id) REFERENCES DEPARTMENT(dept_id),
+    CONSTRAINT FK_COURSE_PRE FOREIGN KEY (pre_course_id) REFERENCES COURSE(course_id)
+);
+
+-- 课程学分规则表
+CREATE TABLE COURSE_EDU_RULE (
+    course_id CHAR(8),
+    edu_level VARCHAR(20),
+    course_nature VARCHAR(20),
+    credit NUMERIC(3,1),
+    PRIMARY KEY (course_id, edu_level),
+    CONSTRAINT FK_COURSE_EDU_RULE_COURSE FOREIGN KEY (course_id) REFERENCES COURSE(course_id)
+);
+
+
+-- ============================================================
+-- 子系统2：选课排课成绩管理 (PostgreSQL 专用语法)
+-- ============================================================
+
+-- 开课教学班表
+CREATE TABLE COURSE_OFFERING (
+    offering_id CHAR(12) PRIMARY KEY,
+    course_id CHAR(8) NOT NULL,
+    tea_id CHAR(8) NOT NULL,
+    semester VARCHAR(20) NOT NULL,
+    class_seq INT,
+    max_stu INT,
+    curr_stu INT,
+    teach_lang VARCHAR(20),
+    has_exp BOOLEAN, -- PG原生支持BOOLEAN
+    CONSTRAINT FK_OFFERING_COURSE FOREIGN KEY (course_id) REFERENCES COURSE(course_id),
+    CONSTRAINT FK_OFFERING_TEACHER FOREIGN KEY (tea_id) REFERENCES TEACHER(tea_id)
+);
+
+-- 教室表
+CREATE TABLE CLASSROOM (
+    room_id CHAR(6) PRIMARY KEY,
+    room_name VARCHAR(50) NOT NULL,
+    capacity INT,
+    room_type VARCHAR(20),
+    has_projector BOOLEAN,
+    proj_count INT,
+    desk_movable BOOLEAN,
+    campus VARCHAR(50)
+);
+
+-- 排课记录表 (使用 GENERATED ALWAYS AS IDENTITY)
+CREATE TABLE SCHEDULE (
+    sch_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    offering_id CHAR(12) NOT NULL,
+    room_id CHAR(6) NOT NULL,
+    week_day INT,
+    start_section INT,
+    end_section INT,
+    start_week INT,
+    end_week INT,
+    week_flag VARCHAR(10),
+    sch_type VARCHAR(20),
+    remark TEXT,
+    CONSTRAINT FK_SCHEDULE_OFFERING FOREIGN KEY (offering_id) REFERENCES COURSE_OFFERING(offering_id),
+    CONSTRAINT FK_SCHEDULE_ROOM FOREIGN KEY (room_id) REFERENCES CLASSROOM(room_id)
+);
+
+-- 选课中间表
+CREATE TABLE ENROLL (
+    enroll_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    stu_id CHAR(10) NOT NULL,
+    offering_id CHAR(12) NOT NULL,
+    enroll_time TIMESTAMP, -- PG推荐使用TIMESTAMP代替DATETIME
+    enroll_status VARCHAR(20),
+    course_nature VARCHAR(20),
+    CONSTRAINT FK_ENROLL_STUDENT FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id),
+    CONSTRAINT FK_ENROLL_OFFERING FOREIGN KEY (offering_id) REFERENCES COURSE_OFFERING(offering_id)
+);
+
+-- 评分模板表
+CREATE TABLE SCORE_TEMPLATE (
+    temp_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    offering_id CHAR(12) NOT NULL,
+    item_name VARCHAR(50),
+    weight NUMERIC(3,1),
+    score_standard TEXT,
+    CONSTRAINT FK_TEMPLATE_OFFERING FOREIGN KEY (offering_id) REFERENCES COURSE_OFFERING(offering_id)
+);
+
+-- 成绩主表
+CREATE TABLE GRADE_MAIN (
+    grade_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    stu_id CHAR(10) NOT NULL,
+    offering_id CHAR(12) NOT NULL,
+    total_score NUMERIC(4,1),
+    grade_level VARCHAR(10),
+    is_makeup BOOLEAN,
+    makeup_score NUMERIC(4,1),
+    input_tea_id CHAR(8),
+    input_time TIMESTAMP,
+    remark TEXT,
+    CONSTRAINT FK_GRADE_STUDENT FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id),
+    CONSTRAINT FK_GRADE_OFFERING FOREIGN KEY (offering_id) REFERENCES COURSE_OFFERING(offering_id),
+    CONSTRAINT FK_GRADE_INPUT_TEA FOREIGN KEY (input_tea_id) REFERENCES TEACHER(tea_id)
+);
+
+-- 成绩分项表
+CREATE TABLE GRADE_ITEM (
+    item_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    grade_id INT NOT NULL,
+    item_name VARCHAR(50),
+    item_score NUMERIC(4,1),
+    weight NUMERIC(3,1),
+    CONSTRAINT FK_GRADE_ITEM_MAIN FOREIGN KEY (grade_id) REFERENCES GRADE_MAIN(grade_id)
+);
+
+
+-- ============================================================
+-- 子系统3：毕设实践考勤调课
+-- ============================================================
+
+-- 毕业设计表
+CREATE TABLE GRADUATION_THESIS (
+    thesis_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    stu_id CHAR(10) NOT NULL,
+    adv_tea_id CHAR(8) NOT NULL,
+    review_tea_id CHAR(8),
+    title VARCHAR(200),
+    source VARCHAR(100),
+    start_date DATE,
+    defend_date TIMESTAMP,
+    final_score NUMERIC(4,1),
+    grade_rank VARCHAR(10),
+    defend_status VARCHAR(20),
+    CONSTRAINT FK_THESIS_STUDENT FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id),
+    CONSTRAINT FK_THESIS_ADV_TEA FOREIGN KEY (adv_tea_id) REFERENCES TEACHER(tea_id),
+    CONSTRAINT FK_THESIS_REVIEW_TEA FOREIGN KEY (review_tea_id) REFERENCES TEACHER(tea_id)
+);
+
+-- 项目设计表
+CREATE TABLE PROJECT_DESIGN (
+    proj_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    proj_name VARCHAR(200),
+    course_id CHAR(8),
+    stu_id CHAR(10) NOT NULL,
+    adv_tea_id CHAR(8),
+    proj_type VARCHAR(20),
+    submit_date DATE,
+    score NUMERIC(4,1),
+    remark TEXT,
+    CONSTRAINT FK_PROJECT_COURSE FOREIGN KEY (course_id) REFERENCES COURSE(course_id),
+    CONSTRAINT FK_PROJECT_STUDENT FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id),
+    CONSTRAINT FK_PROJECT_ADV_TEA FOREIGN KEY (adv_tea_id) REFERENCES TEACHER(tea_id)
+);
+
+-- 考勤记录表
+CREATE TABLE ATTENDANCE (
+    att_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    sch_id INT NOT NULL,
+    stu_id CHAR(10) NOT NULL,
+    class_date DATE,
+    att_status VARCHAR(20),
+    remark TEXT,
+    CONSTRAINT FK_ATTENDANCE_SCHEDULE FOREIGN KEY (sch_id) REFERENCES SCHEDULE(sch_id),
+    CONSTRAINT FK_ATTENDANCE_STUDENT FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id)
+);
+
+-- 调课申请表
+CREATE TABLE ADJUST_SCHED (
+    adj_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    origin_sch_id INT NOT NULL,
+    new_room_id CHAR(6),
+    apply_tea_id CHAR(8) NOT NULL,
+    adj_type VARCHAR(20),
+    origin_date DATE,
+    new_date DATE,
+    new_start_sec INT,
+    new_end_sec INT,
+    adj_reason TEXT,
+    audit_status VARCHAR(20),
+    apply_time TIMESTAMP,
+    CONSTRAINT FK_ADJUST_ORIGIN_SCH FOREIGN KEY (origin_sch_id) REFERENCES SCHEDULE(sch_id),
+    CONSTRAINT FK_ADJUST_NEW_ROOM FOREIGN KEY (new_room_id) REFERENCES CLASSROOM(room_id),
+    CONSTRAINT FK_ADJUST_APPLY_TEA FOREIGN KEY (apply_tea_id) REFERENCES TEACHER(tea_id)
+);
