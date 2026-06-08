@@ -1,0 +1,442 @@
+-- ============================================================
+-- 教务管理系统 最终版建表脚本
+-- 数据库：PostgreSQL
+-- 版本：完整约束+级联规则+触发器
+-- ============================================================
+
+-- 清空旧表
+DROP TABLE IF EXISTS ADJUST_SCHED CASCADE;
+DROP TABLE IF EXISTS ATTENDANCE CASCADE;
+DROP TABLE IF EXISTS PROJECT_DESIGN CASCADE;
+DROP TABLE IF EXISTS GRADUATION_THESIS CASCADE;
+DROP TABLE IF EXISTS GRADE_ITEM CASCADE;
+DROP TABLE IF EXISTS GRADE_MAIN CASCADE;
+DROP TABLE IF EXISTS SCORE_TEMPLATE CASCADE;
+DROP TABLE IF EXISTS ENROLL CASCADE;
+DROP TABLE IF EXISTS SCHEDULE CASCADE;
+DROP TABLE IF EXISTS CLASSROOM CASCADE;
+DROP TABLE IF EXISTS COURSE_OFFERING CASCADE;
+DROP TABLE IF EXISTS COURSE_EDU_RULE CASCADE;
+DROP TABLE IF EXISTS COURSE CASCADE;
+DROP TABLE IF EXISTS TEACHER CASCADE;
+DROP TABLE IF EXISTS STUDENT CASCADE;
+DROP TABLE IF EXISTS MAJOR CASCADE;
+DROP TABLE IF EXISTS DEPARTMENT CASCADE;
+
+-- ============================================================
+-- 子系统1：基础学籍师资管理
+-- ============================================================
+-- 1. 院系表 DEPARTMENT
+CREATE TABLE DEPARTMENT (
+    dept_id CHAR(4) PRIMARY KEY,
+    dept_name VARCHAR(50) NOT NULL
+);
+
+-- 2. 专业表 MAJOR
+CREATE TABLE MAJOR (
+    major_id INT PRIMARY KEY,
+    dept_id CHAR(4) NOT NULL,
+    major_name VARCHAR(50) NOT NULL,
+    CONSTRAINT FK_MAJOR_DEPT 
+        FOREIGN KEY (dept_id) REFERENCES DEPARTMENT(dept_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+);
+
+-- 3. 学生表 STUDENT
+CREATE TABLE STUDENT (
+    stu_id CHAR(10) PRIMARY KEY,
+    stu_name VARCHAR(50) NOT NULL,
+    gender VARCHAR(10) CHECK(gender IN ('男','女')),
+    birth DATE,
+    id_card CHAR(18) UNIQUE,
+    enroll_year INT CHECK(enroll_year BETWEEN 2000 AND 2099),
+    edu_level VARCHAR(20) DEFAULT '本科' CHECK(edu_level IN ('本科','硕士','博士')),
+    dept_id CHAR(4),
+    major_name VARCHAR(50),
+    cls_name VARCHAR(50),
+    study_status VARCHAR(20) DEFAULT '在读' CHECK(study_status IN ('在读','休学','退学','毕业')),
+    phone VARCHAR(15),
+    email VARCHAR(100),
+    CONSTRAINT FK_STUDENT_DEPT 
+        FOREIGN KEY (dept_id) REFERENCES DEPARTMENT(dept_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+);
+
+-- 4. 教师表 TEACHER
+CREATE TABLE TEACHER (
+    tea_id CHAR(8) PRIMARY KEY,
+    tea_name VARCHAR(50) NOT NULL,
+    gender VARCHAR(10) CHECK(gender IN ('男','女')),
+    birth DATE,
+    title VARCHAR(20) CHECK(title IN ('教授','副教授','讲师','助教')),
+    dept_id CHAR(4),
+    edu_level VARCHAR(20),
+    phone VARCHAR(15),
+    email VARCHAR(100) UNIQUE,
+    CONSTRAINT FK_TEACHER_DEPT 
+        FOREIGN KEY (dept_id) REFERENCES DEPARTMENT(dept_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+);
+
+-- 5. 课程表 COURSE
+CREATE TABLE COURSE (
+    course_id CHAR(8) PRIMARY KEY,
+    course_name VARCHAR(100) NOT NULL,
+    course_type VARCHAR(20) CHECK(course_type IN ('理论课','实验课','实践课')),
+    credit_default NUMERIC(3,1) CHECK(credit_default > 0),
+    class_hour INT CHECK(class_hour > 0),
+    dept_id CHAR(4),
+    pre_course_id CHAR(8),
+    course_desc TEXT,
+    CONSTRAINT FK_COURSE_DEPT 
+        FOREIGN KEY (dept_id) REFERENCES DEPARTMENT(dept_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_COURSE_PRE 
+        FOREIGN KEY (pre_course_id) REFERENCES COURSE(course_id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE
+);
+
+-- 6. 课程学分规则表 COURSE_EDU_RULE
+CREATE TABLE COURSE_EDU_RULE (
+    course_id CHAR(8),
+    edu_level VARCHAR(20) CHECK(edu_level IN ('本科','硕士','博士')),
+    course_nature VARCHAR(20) CHECK(course_nature IN ('必修','选修')),
+    credit NUMERIC(3,1) CHECK(credit > 0),
+    PRIMARY KEY (course_id, edu_level),
+    CONSTRAINT FK_COURSE_EDU_RULE_COURSE 
+        FOREIGN KEY (course_id) REFERENCES COURSE(course_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+-- ============================================================
+-- 子系统2：选课排课成绩管理
+-- ============================================================
+-- 7. 开课教学班表 COURSE_OFFERING
+CREATE TABLE COURSE_OFFERING (
+    offering_id CHAR(12) PRIMARY KEY,
+    course_id CHAR(8) NOT NULL,
+    tea_id CHAR(8) NOT NULL,
+    semester VARCHAR(20) NOT NULL,
+    class_seq INT CHECK(class_seq > 0),
+    max_stu INT CHECK(max_stu > 0),
+    curr_stu INT DEFAULT 0 CHECK(curr_stu >= 0),
+    teach_lang VARCHAR(20) CHECK(teach_lang IN ('中文','英文','双语')),
+    has_exp BOOLEAN DEFAULT FALSE,
+    CONSTRAINT FK_OFFERING_COURSE 
+        FOREIGN KEY (course_id) REFERENCES COURSE(course_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_OFFERING_TEACHER 
+        FOREIGN KEY (tea_id) REFERENCES TEACHER(tea_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT chk_stu_num CHECK(curr_stu <= max_stu)
+);
+
+-- 8. 教室表 CLASSROOM
+CREATE TABLE CLASSROOM (
+    room_id CHAR(6) PRIMARY KEY,
+    room_name VARCHAR(50) NOT NULL,
+    capacity INT CHECK(capacity > 0),
+    room_type VARCHAR(20) CHECK(room_type IN ('普通教室','多媒体教室','实验室','阶梯教室')),
+    has_projector BOOLEAN DEFAULT FALSE,
+    proj_count INT CHECK(proj_count >= 0),
+    desk_movable BOOLEAN DEFAULT FALSE,
+    campus VARCHAR(50)
+);
+
+-- 9. 排课记录表 SCHEDULE
+CREATE TABLE SCHEDULE (
+    sch_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    offering_id CHAR(12) NOT NULL,
+    room_id CHAR(6) NOT NULL,
+    week_day INT CHECK(week_day BETWEEN 1 AND 7),
+    start_section INT CHECK(start_section BETWEEN 1 AND 12),
+    end_section INT CHECK(end_section BETWEEN 1 AND 12),
+    start_week INT CHECK(start_week BETWEEN 1 AND 20),
+    end_week INT CHECK(end_week BETWEEN 1 AND 20),
+    week_flag VARCHAR(10) DEFAULT '全周' CHECK(week_flag IN ('全周','单周','双周')),
+    sch_type VARCHAR(20),
+    remark TEXT,
+    CONSTRAINT FK_SCHEDULE_OFFERING 
+        FOREIGN KEY (offering_id) REFERENCES COURSE_OFFERING(offering_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_SCHEDULE_ROOM 
+        FOREIGN KEY (room_id) REFERENCES CLASSROOM(room_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT chk_section_order CHECK(end_section >= start_section),
+    CONSTRAINT chk_week_order CHECK(end_week >= start_week)
+);
+
+-- 10. 选课中间表 ENROLL
+CREATE TABLE ENROLL (
+    enroll_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    stu_id CHAR(10) NOT NULL,
+    offering_id CHAR(12) NOT NULL,
+    enroll_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    enroll_status VARCHAR(20) DEFAULT '待审核' CHECK(enroll_status IN ('待审核','已确认','已退选')),
+    course_nature VARCHAR(20) CHECK(course_nature IN ('必修','选修')),
+    CONSTRAINT FK_ENROLL_STUDENT 
+        FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_ENROLL_OFFERING 
+        FOREIGN KEY (offering_id) REFERENCES COURSE_OFFERING(offering_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT uq_enroll_unique UNIQUE(stu_id, offering_id)
+);
+
+-- 11. 评分模板表 SCORE_TEMPLATE
+CREATE TABLE SCORE_TEMPLATE (
+    temp_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    offering_id CHAR(12) NOT NULL,
+    item_name VARCHAR(50) NOT NULL,
+    weight NUMERIC(3,1) CHECK(weight BETWEEN 0 AND 1),
+    score_standard TEXT,
+    CONSTRAINT FK_TEMPLATE_OFFERING 
+        FOREIGN KEY (offering_id) REFERENCES COURSE_OFFERING(offering_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+-- 12. 成绩主表 GRADE_MAIN
+CREATE TABLE GRADE_MAIN (
+    grade_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    stu_id CHAR(10) NOT NULL,
+    offering_id CHAR(12) NOT NULL,
+    total_score NUMERIC(4,1) CHECK(total_score BETWEEN 0 AND 100),
+    grade_level VARCHAR(10) CHECK(grade_level IN ('优','良','中','及格','不及格')),
+    is_makeup BOOLEAN DEFAULT FALSE,
+    makeup_score NUMERIC(4,1) CHECK(makeup_score BETWEEN 0 AND 100),
+    input_tea_id CHAR(8),
+    input_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    remark TEXT,
+    CONSTRAINT FK_GRADE_STUDENT 
+        FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_GRADE_OFFERING 
+        FOREIGN KEY (offering_id) REFERENCES COURSE_OFFERING(offering_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_GRADE_INPUT_TEA 
+        FOREIGN KEY (input_tea_id) REFERENCES TEACHER(tea_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT uq_grade_unique UNIQUE(stu_id, offering_id)
+);
+
+-- 13. 成绩分项表 GRADE_ITEM
+CREATE TABLE GRADE_ITEM (
+    item_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    grade_id INT NOT NULL,
+    item_name VARCHAR(50) NOT NULL,
+    item_score NUMERIC(4,1) CHECK(item_score BETWEEN 0 AND 100),
+    weight NUMERIC(3,1) CHECK(weight BETWEEN 0 AND 1),
+    CONSTRAINT FK_GRADE_ITEM_MAIN 
+        FOREIGN KEY (grade_id) REFERENCES GRADE_MAIN(grade_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+);
+
+-- ============================================================
+-- 子系统3：毕设实践考勤调课
+-- ============================================================
+-- 14. 毕业设计表 GRADUATION_THESIS
+CREATE TABLE GRADUATION_THESIS (
+    thesis_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    stu_id CHAR(10) NOT NULL,
+    adv_tea_id CHAR(8) NOT NULL,
+    review_tea_id CHAR(8),
+    title VARCHAR(200) NOT NULL,
+    source VARCHAR(100),
+    start_date DATE,
+    defend_date TIMESTAMP,
+    final_score NUMERIC(4,1) CHECK(final_score BETWEEN 0 AND 100),
+    grade_rank VARCHAR(10),
+    defend_status VARCHAR(20) DEFAULT '未开题' CHECK(defend_status IN ('未开题','进行中','已答辩','答辩未通过')),
+    CONSTRAINT FK_THESIS_STUDENT 
+        FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_THESIS_ADV_TEA 
+        FOREIGN KEY (adv_tea_id) REFERENCES TEACHER(tea_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_THESIS_REVIEW_TEA 
+        FOREIGN KEY (review_tea_id) REFERENCES TEACHER(tea_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT uq_thesis_stu UNIQUE(stu_id),
+    CONSTRAINT chk_teacher_diff CHECK(adv_tea_id <> review_tea_id)
+);
+
+-- 15. 项目设计表 PROJECT_DESIGN
+CREATE TABLE PROJECT_DESIGN (
+    proj_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    proj_name VARCHAR(200) NOT NULL,
+    course_id CHAR(8),
+    stu_id CHAR(10) NOT NULL,
+    adv_tea_id CHAR(8),
+    proj_type VARCHAR(20) CHECK(proj_type IN ('课程设计','独立实践','大作业')),
+    submit_date DATE,
+    score NUMERIC(4,1) CHECK(score BETWEEN 0 AND 100),
+    remark TEXT,
+    CONSTRAINT FK_PROJECT_COURSE 
+        FOREIGN KEY (course_id) REFERENCES COURSE(course_id)
+        ON DELETE SET NULL
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_PROJECT_STUDENT 
+        FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_PROJECT_ADV_TEA 
+        FOREIGN KEY (adv_tea_id) REFERENCES TEACHER(tea_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+);
+
+-- 16. 考勤记录表 ATTENDANCE
+CREATE TABLE ATTENDANCE (
+    att_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    sch_id INT NOT NULL,
+    stu_id CHAR(10) NOT NULL,
+    class_date DATE NOT NULL,
+    att_status VARCHAR(20) CHECK(att_status IN ('出勤','迟到','早退','请假','缺勤')),
+    remark TEXT,
+    CONSTRAINT FK_ATTENDANCE_SCHEDULE 
+        FOREIGN KEY (sch_id) REFERENCES SCHEDULE(sch_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_ATTENDANCE_STUDENT 
+        FOREIGN KEY (stu_id) REFERENCES STUDENT(stu_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT uq_attend_unique UNIQUE(sch_id, stu_id, class_date)
+);
+
+-- 17. 调课申请表 ADJUST_SCHED
+CREATE TABLE ADJUST_SCHED (
+    adj_id INT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    origin_sch_id INT NOT NULL,
+    new_room_id CHAR(6),
+    apply_tea_id CHAR(8) NOT NULL,
+    adj_type VARCHAR(20) CHECK(adj_type IN ('换教室','调时间','停课','补课')),
+    origin_date DATE NOT NULL,
+    new_date DATE,
+    new_start_sec INT,
+    new_end_sec INT,
+    adj_reason TEXT NOT NULL,
+    audit_status VARCHAR(20) DEFAULT '待审核' CHECK(audit_status IN ('待审核','已通过','已驳回')),
+    apply_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT FK_ADJUST_ORIGIN_SCH 
+        FOREIGN KEY (origin_sch_id) REFERENCES SCHEDULE(sch_id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_ADJUST_NEW_ROOM 
+        FOREIGN KEY (new_room_id) REFERENCES CLASSROOM(room_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE,
+    CONSTRAINT FK_ADJUST_APPLY_TEA 
+        FOREIGN KEY (apply_tea_id) REFERENCES TEACHER(tea_id)
+        ON DELETE RESTRICT
+        ON UPDATE CASCADE
+);
+
+-- ============================================================
+-- 自定义函数 & 触发器（业务级动态约束）
+-- ============================================================
+-- 触发器1：选课人数校验 + 自动更新教学班人数
+CREATE OR REPLACE FUNCTION check_enroll_capacity()
+RETURNS TRIGGER AS $$
+DECLARE
+    max_num INT;
+    cur_num INT;
+BEGIN
+    SELECT max_stu, curr_stu INTO max_num, cur_num
+    FROM COURSE_OFFERING
+    WHERE offering_id = NEW.offering_id;
+
+    IF cur_num >= max_num THEN
+        RAISE EXCEPTION '选课失败：教学班已满员，最大容量为 % 人', max_num;
+    END IF;
+
+    UPDATE COURSE_OFFERING SET curr_stu = curr_stu + 1
+    WHERE offering_id = NEW.offering_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_enroll_insert
+BEFORE INSERT ON ENROLL
+FOR EACH ROW EXECUTE FUNCTION check_enroll_capacity();
+
+-- 退选自动扣减人数
+CREATE OR REPLACE FUNCTION reduce_enroll_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE COURSE_OFFERING SET curr_stu = curr_stu - 1
+    WHERE offering_id = OLD.offering_id;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_enroll_delete
+AFTER DELETE ON ENROLL
+FOR EACH ROW EXECUTE FUNCTION reduce_enroll_count();
+
+-- 触发器2：排课教室时间冲突检测
+CREATE OR REPLACE FUNCTION check_schedule_conflict()
+RETURNS TRIGGER AS $$
+DECLARE
+    conflict_cnt INT;
+BEGIN
+    SELECT COUNT(*) INTO conflict_cnt
+    FROM SCHEDULE
+    WHERE room_id = NEW.room_id
+      AND week_day = NEW.week_day
+      AND sch_id <> NEW.sch_id
+      AND start_section < NEW.end_section
+      AND end_section > NEW.start_section;
+
+    IF conflict_cnt > 0 THEN
+        RAISE EXCEPTION '排课失败：该教室当前时间段已存在课程，发生排课冲突';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_schedule_conflict
+BEFORE INSERT OR UPDATE ON SCHEDULE
+FOR EACH ROW EXECUTE FUNCTION check_schedule_conflict();
+
+-- 触发器3：成绩分项权重总和校验（总和≤1）
+CREATE OR REPLACE FUNCTION check_grade_weight_sum()
+RETURNS TRIGGER AS $$
+DECLARE
+    total_w NUMERIC(3,1);
+BEGIN
+    SELECT COALESCE(SUM(weight), 0) INTO total_w
+    FROM GRADE_ITEM
+    WHERE grade_id = NEW.grade_id;
+
+    total_w := total_w + NEW.weight;
+    IF total_w > 1 THEN
+        RAISE EXCEPTION '权重校验失败：当前分项权重总和为 %，不能超过1', total_w;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_grade_weight
+BEFORE INSERT OR UPDATE ON GRADE_ITEM
+FOR EACH ROW EXECUTE FUNCTION check_grade_weight_sum();
